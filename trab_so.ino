@@ -30,6 +30,7 @@
 #define NUM_TASKS 4
 #define SizeTaskStack 128// Tamanho da pilha da tarefa
 #define MAX_NKREAD_QUEUE 5 // N�mero m�ximo de threads esperando por leitura
+#define MAX_NKPRINT_QUEUE 50 // N�mero m�ximo de mensagens esperando por impress��o
 #define MAX_NAME_LENGTH 30
 unsigned int NumberTaskAdd=-1;
 volatile int TaskRunning = 0;
@@ -68,9 +69,19 @@ typedef struct {
     void *var; // Argumentos onde os dados ser�o armazenados
 } NkReadQueueEntry;
 
+typedef struct {
+    const char *format; // Formato da entrada esperado (similar ao printf)
+    void *var; // Argumentos que ser�o escritos
+} NkPrintQueueEntry;
+
 NkReadQueueEntry nkreadQueue[MAX_NKREAD_QUEUE];
 int nkreadQueueHead = 0;
 int nkreadQueueTail = 0;
+
+NkPrintQueueEntry nkprintQueue[MAX_NKPRINT_QUEUE];
+int nkprintQueueHead = 0;
+int nkprintQueueTail = 0;
+
 char serialInputBuffer[128]; // Buffer para armazenar a entrada da serial
 int serialInputIndex = 0;
 
@@ -321,12 +332,12 @@ void wakeUP() //acorda a task bloqueada a espera de passagem de tempo
 * Usada para  testes
 */
  void printReadyList() {
-    Serial.print("Ready list tasks: ");
+    nkprint("Ready list tasks: ", 0);
     for (int i = 0; i < ready_queue.head; i++) {
-        Serial.print(" Index:");
-        Serial.print(ready_queue.queue[i]);
+        nkprint(" Index:", 0);
+        nkprint("%d", ready_queue.queue[i]);
     }
-    Serial.println(" ");
+    nkprint(" ", 0);
 }
 
 
@@ -399,6 +410,7 @@ void systemContext() { //Chamada pela interrupcao do Timer
   wakeUP();
   serialEvent();
   switchTask();
+  processPrintQueue();
 }
 
 /*
@@ -560,7 +572,26 @@ static inline int calcularPrecisao( float valor)
   }
   return PRECISAO_FLOAT_ARDUINO - precisao;
 }
-void sys_nkprint(char *fmt,void *number)
+
+void enqueueNkPrint(const char *format, void *var) {
+    nkprintQueue[nkprintQueueTail].format = format;
+    nkprintQueue[nkprintQueueTail].var = var;
+    nkprintQueueTail = (nkprintQueueTail + 1) % MAX_NKPRINT_QUEUE;
+}
+
+NkPrintQueueEntry dequeueNkPrint() {
+    NkPrintQueueEntry entry = nkprintQueue[nkprintQueueHead];
+    nkprintQueueHead = (nkprintQueueHead + 1) % MAX_NKPRINT_QUEUE;
+    return entry;
+}
+
+void sys_nkprint(const char *format, void *var) {
+  // Adicionar a mensagem na fila de escrita
+  enqueueNkPrint(format, var);
+  switchTask();
+}
+
+void serial_print(char *fmt,void *number)
 {
   int *auxint;
   float *auxfloat;
@@ -658,6 +689,13 @@ void sys_nkprint(char *fmt,void *number)
   Serial.flush();
   delay(100) ;
   }
+}
+
+void processPrintQueue() {
+    while (nkprintQueueHead != nkprintQueueTail) {
+        NkPrintQueueEntry entry = dequeueNkPrint();
+        serial_print(entry.format, entry.var);
+    }
 }
 
 void sys_taskexit(void)
