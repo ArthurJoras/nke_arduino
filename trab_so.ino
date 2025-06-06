@@ -30,7 +30,7 @@
 #define NUM_TASKS 4
 #define SizeTaskStack 128// Tamanho da pilha da tarefa
 #define MAX_NKREAD_QUEUE 5 // N�mero m�ximo de threads esperando por leitura
-#define MAX_NKPRINT_QUEUE 50 // N�mero m�ximo de mensagens esperando por impress��o
+#define MAX_NKPRINT_QUEUE 100 // N�mero m�ximo de mensagens esperando por impress��o
 #define MAX_NAME_LENGTH 30
 unsigned int NumberTaskAdd=-1;
 volatile int TaskRunning = 0;
@@ -334,11 +334,11 @@ void wakeUP() //acorda a task bloqueada a espera de passagem de tempo
 * Imprime a Ready List
 * Usada para  testes
 */
- void printReadyList() {
+void printReadyList() {
     nkprint("Ready list tasks: ", 0);
     for (int i = 0; i < ready_queue.head; i++) {
         nkprint(" Index:", 0);
-        nkprint("%d", &ready_queue.queue[i]);
+        nkprint("%d", (void *)&ready_queue.queue[i]);
     }
     nkprint("\n", 0);
 }
@@ -410,10 +410,10 @@ void sortReadyList() {
 //Trata a interrupcao do Timer
 
 void systemContext() { //Chamada pela interrupcao do Timer
+  processPrintQueue();
   wakeUP();
   serialEvent();
   switchTask();
-  processPrintQueue();
 }
 
 /*
@@ -625,11 +625,10 @@ void serial_print(char *fmt,void *number)
                 Serial.print(*auxchar);
                 break;
               case 's':
-                sys_nkprint((char *)number,0);
+                serial_print((char *)number,0);
                 break;
               case 'd':
-                auxint=number;
-                Serial.print(*auxint);
+                Serial.print(*(int *)number);
                 break;
               case 'f':
                 auxfloat=number;
@@ -703,11 +702,29 @@ void serial_print(char *fmt,void *number)
 }
 
 void processPrintQueue() {
-    while (nkprintQueueHead != nkprintQueueTail) {
-        NkPrintQueueEntry entry = dequeueNkPrint();
-        serial_print(entry.format, entry.var);
+  while (printTailMutex);
+  printTailMutex = true;
+  int snapshotTail = nkprintQueueTail;
+  printTailMutex = false;
+
+  while (nkprintQueueHead != snapshotTail) {
+    int currentTid = nkprintQueue[nkprintQueueHead].tid;
+
+    int i = nkprintQueueHead;
+    while (i != snapshotTail) {
+      if (nkprintQueue[i].tid == currentTid) {
+        serial_print((char*)nkprintQueue[i].format, nkprintQueue[i].var);
+        nkprintQueue[i].tid = -1;
+      }
+      i = (i + 1) % MAX_NKPRINT_QUEUE;
     }
+
+    while (nkprintQueueHead != snapshotTail && nkprintQueue[nkprintQueueHead].tid == -1) {
+      nkprintQueueHead = (nkprintQueueHead + 1) % MAX_NKPRINT_QUEUE;
+    }
+  }
 }
+
 
 void sys_taskexit(void)
 {
@@ -971,6 +988,7 @@ void p3() {
   int teste = 10;
   char teste2 = 'A';
   float teste3 = 3.14159;
+  char teste4[20] = "Hello, World!";
   getmynumber(&number3);
   while (1) {
     nkprint("P3 running\n", 0);
@@ -978,6 +996,7 @@ void p3() {
     nkprint("char: %c\n", &teste2);
     nkprint("float: %f\n", &teste3);
     nkprint("percent: %%\n", 0);
+    nkprint("string: %s\n", &teste4);
     sleep(2);
   }
 }
