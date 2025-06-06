@@ -577,13 +577,13 @@ static inline int calcularPrecisao( float valor)
 }
 
 void enqueueNkPrint(int tid, const char *format, void *var) {
-    while(printTailMutex; == true); // Espera se printTailMutex; estiver ocupado
-    printTailMutex; = true; // Bloqueia o printTailMutex;
+    while(printTailMutex == true); // Espera se printTailMutex estiver ocupado
+    printTailMutex = true; // Bloqueia o printTailMutex
     nkprintQueue[nkprintQueueTail].tid = tid;
     nkprintQueue[nkprintQueueTail].format = format;
     nkprintQueue[nkprintQueueTail].var = var;
     nkprintQueueTail = (nkprintQueueTail + 1) % MAX_NKPRINT_QUEUE;
-    printTailMutex; = false; // Libera o printTailMutex;
+    printTailMutex = false; // Libera o printTailMutex
 }
 
 NkPrintQueueEntry dequeueNkPrint() {
