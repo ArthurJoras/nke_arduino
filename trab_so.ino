@@ -70,6 +70,7 @@ typedef struct {
 } NkReadQueueEntry;
 
 typedef struct {
+    int tid; // ID da thread que est�� imprimindo
     const char *format; // Formato da entrada esperado (similar ao printf)
     void *var; // Argumentos que ser�o escritos
 } NkPrintQueueEntry;
@@ -81,6 +82,8 @@ int nkreadQueueTail = 0;
 NkPrintQueueEntry nkprintQueue[MAX_NKPRINT_QUEUE];
 int nkprintQueueHead = 0;
 int nkprintQueueTail = 0;
+volatile bool printTailMutex;
+volatile bool printHeadMutex;
 
 char serialInputBuffer[128]; // Buffer para armazenar a entrada da serial
 int serialInputIndex = 0;
@@ -335,9 +338,9 @@ void wakeUP() //acorda a task bloqueada a espera de passagem de tempo
     nkprint("Ready list tasks: ", 0);
     for (int i = 0; i < ready_queue.head; i++) {
         nkprint(" Index:", 0);
-        nkprint("%d", ready_queue.queue[i]);
+        nkprint("%d", &ready_queue.queue[i]);
     }
-    nkprint(" ", 0);
+    nkprint("\n", 0);
 }
 
 
@@ -573,21 +576,28 @@ static inline int calcularPrecisao( float valor)
   return PRECISAO_FLOAT_ARDUINO - precisao;
 }
 
-void enqueueNkPrint(const char *format, void *var) {
+void enqueueNkPrint(int tid, const char *format, void *var) {
+    while(printTailMutex; == true); // Espera se printTailMutex; estiver ocupado
+    printTailMutex; = true; // Bloqueia o printTailMutex;
+    nkprintQueue[nkprintQueueTail].tid = tid;
     nkprintQueue[nkprintQueueTail].format = format;
     nkprintQueue[nkprintQueueTail].var = var;
     nkprintQueueTail = (nkprintQueueTail + 1) % MAX_NKPRINT_QUEUE;
+    printTailMutex; = false; // Libera o printTailMutex;
 }
 
 NkPrintQueueEntry dequeueNkPrint() {
+    while(printHeadMutex == true); // Espera se printHeadMutex estiver ocupado
+    printHeadMutex = true; // Bloqueia o printHeadMutex
     NkPrintQueueEntry entry = nkprintQueue[nkprintQueueHead];
     nkprintQueueHead = (nkprintQueueHead + 1) % MAX_NKPRINT_QUEUE;
+    printHeadMutex = false; // Libera o printHeadMutex
     return entry;
 }
 
 void sys_nkprint(const char *format, void *var) {
   // Adicionar a mensagem na fila de escrita
-  enqueueNkPrint(format, var);
+  enqueueNkPrint(Descriptors[TaskRunning].Tid, format, var);
   switchTask();
 }
 
@@ -611,7 +621,8 @@ void serial_print(char *fmt,void *number)
                 Serial.print(*fmt);
                 break;
               case 'c':
-                Serial.print((char *)number);
+                auxchar = (char *)number;
+                Serial.print(*auxchar);
                 break;
               case 's':
                 sys_nkprint((char *)number,0);
@@ -955,6 +966,22 @@ void p2() {
   }
 }
 
+void p3() {
+  static int number3;
+  int teste = 10;
+  char teste2 = 'A';
+  float teste3 = 3.14159;
+  getmynumber(&number3);
+  while (1) {
+    nkprint("P3 running\n", 0);
+    nkprint("int: %d\n", &teste);
+    nkprint("char: %c\n", &teste2);
+    nkprint("float: %f\n", &teste3);
+    nkprint("percent: %%\n", 0);
+    sleep(2);
+  }
+}
+
 /*************************************************************
 *                                                            *
 *               Setup e cria��o das Tasks                    *
@@ -977,6 +1004,7 @@ void setup() {
     taskcreate(&tid1,p0,0);
     taskcreate(&tid2,p1,1);
     taskcreate(&tid2,p2,2);
+    taskcreate(&tid3,p3,1);
     start (RR) ; //coloca as tasks na fila
 
   noInterrupts(); 
