@@ -1,8 +1,7 @@
 /*
  * 
- * Versao com uma implementacao do RR com prioridade - 
- * Maior Valor, maior prioridade
- *    01/07/2024 
+ * Versao com implementação de fila de print - 
+ *    06/06/2025 
  *
 */
 
@@ -30,7 +29,7 @@
 #define NUM_TASKS 4
 #define SizeTaskStack 128// Tamanho da pilha da tarefa
 #define MAX_NKREAD_QUEUE 5 // N�mero m�ximo de threads esperando por leitura
-#define MAX_NKPRINT_QUEUE 100 // N�mero m�ximo de mensagens esperando por impress��o
+#define MAX_NKPRINT_QUEUE 50 // N�mero m�ximo de mensagens esperando por impress��o
 #define MAX_NAME_LENGTH 30
 unsigned int NumberTaskAdd=-1;
 volatile int TaskRunning = 0;
@@ -72,7 +71,14 @@ typedef struct {
 typedef struct {
     int tid; // ID da thread que est�� imprimindo
     const char *format; // Formato da entrada esperado (similar ao printf)
-    void *var; // Argumentos que ser�o escritos
+    char type; // 'd', 'f', 'c', 's', '%'
+    union {
+        int i;
+        float f;
+        char c;
+        const char *s;
+    } var; // Vari��vel que ser�� impressa
+    
 } NkPrintQueueEntry;
 
 NkReadQueueEntry nkreadQueue[MAX_NKREAD_QUEUE];
@@ -579,9 +585,41 @@ static inline int calcularPrecisao( float valor)
 void enqueueNkPrint(int tid, const char *format, void *var) {
     while(printTailMutex == true); // Espera se printTailMutex estiver ocupado
     printTailMutex = true; // Bloqueia o printTailMutex
+    
+    char type = 'd';
+    if (strchr(format, '%')) {
+      char *percent = strchr(format, '%');
+      switch (*(percent + 1)) {
+        case 'd': type = 'd'; break;
+        case 'f': type = 'f'; break;
+        case 'c': type = 'c'; break;
+        case 's': type = 's'; break;
+        case '%': type = '%'; break;
+      }
+    }
+
+
     nkprintQueue[nkprintQueueTail].tid = tid;
     nkprintQueue[nkprintQueueTail].format = format;
-    nkprintQueue[nkprintQueueTail].var = var;
+    nkprintQueue[nkprintQueueTail].type = type;
+
+    switch (type) {
+      case 'd':
+        nkprintQueue[nkprintQueueTail].var.i = *(int *)var;
+        break;
+      case 'f':
+        nkprintQueue[nkprintQueueTail].var.f = *(float *)var;
+        break;
+      case 'c':
+        nkprintQueue[nkprintQueueTail].var.c = *(char *)var;
+        break;
+      case 's':
+        nkprintQueue[nkprintQueueTail].var.s = (const char *)var;
+        break;
+      default:
+        break;
+    }
+
     nkprintQueueTail = (nkprintQueueTail + 1) % MAX_NKPRINT_QUEUE;
     printTailMutex = false; // Libera o printTailMutex
 }
@@ -601,7 +639,7 @@ void sys_nkprint(const char *format, void *var) {
   switchTask();
 }
 
-void serial_print(char *fmt,void *number)
+void serial_print(char *fmt, NkPrintQueueEntry entry)
 {
   int *auxint;
   float *auxfloat;
@@ -621,17 +659,16 @@ void serial_print(char *fmt,void *number)
                 Serial.print(*fmt);
                 break;
               case 'c':
-                auxchar = (char *)number;
-                Serial.print(*auxchar);
+                Serial.print(entry.var.c);
                 break;
               case 's':
-                serial_print((char *)number,0);
+                Serial.print(entry.var.s);
                 break;
               case 'd':
-                Serial.print(*(int *)number);
+                Serial.print(entry.var.i);
                 break;
               case 'f':
-                auxfloat=number;
+                auxfloat=&entry.var.f;
                 int precisao = calcularPrecisao(*auxfloat);
                 Serial.print(*auxfloat, precisao);
                 break;
@@ -713,7 +750,7 @@ void processPrintQueue() {
     int i = nkprintQueueHead;
     while (i != snapshotTail) {
       if (nkprintQueue[i].tid == currentTid) {
-        serial_print((char*)nkprintQueue[i].format, nkprintQueue[i].var);
+        serial_print((char*)nkprintQueue[i].format, nkprintQueue[i]);
         nkprintQueue[i].tid = -1;
       }
       i = (i + 1) % MAX_NKPRINT_QUEUE;
