@@ -745,20 +745,8 @@ void processPrintQueue() {
   printTailMutex = false;
 
   while (nkprintQueueHead != snapshotTail) {
-    int currentTid = nkprintQueue[nkprintQueueHead].tid;
-
-    int i = nkprintQueueHead;
-    while (i != snapshotTail) {
-      if (nkprintQueue[i].tid == currentTid) {
-        serial_print((char*)nkprintQueue[i].format, nkprintQueue[i]);
-        nkprintQueue[i].tid = -1;
-      }
-      i = (i + 1) % MAX_NKPRINT_QUEUE;
-    }
-
-    while (nkprintQueueHead != snapshotTail && nkprintQueue[nkprintQueueHead].tid == -1) {
-      nkprintQueueHead = (nkprintQueueHead + 1) % MAX_NKPRINT_QUEUE;
-    }
+    NkPrintQueueEntry entry = dequeueNkPrint();
+    serial_print((char *)entry.format, entry);
   }
 }
 
