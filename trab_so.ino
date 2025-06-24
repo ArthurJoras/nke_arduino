@@ -76,13 +76,14 @@ typedef struct {
 		float f;
 		char c;
 		const char *s;
-	} var;  // Variável que será impressa
-} NkPrintQueueEntry;
+	} var;            // Variável que será impressa
+} NkPrintQueueEntry;  // Formato de entrada para a fila de impressão
 
 NkReadQueueEntry nkreadQueue[MAX_NKREAD_QUEUE];
 int nkreadQueueHead = 0;
 int nkreadQueueTail = 0;
 
+// Variáveis globais para a fila de impressão (head, tail, fila e mutexes)
 NkPrintQueueEntry nkprintQueue[MAX_NKPRINT_QUEUE];
 int nkprintQueueHead = 0;
 int nkprintQueueTail = 0;
@@ -330,6 +331,7 @@ void wakeUP()  // acorda a task bloqueada a espera de passagem de tempo
 /*
  * Imprime a Ready List
  * Usada para  testes
+ * Ajustado para imprimir conforme a fila de impressão (substituindo Serial.print por nkprint)
  */
 void printReadyList() {
 	nkprint("Ready list tasks: ", 0);
@@ -407,7 +409,7 @@ void systemContext() {  // Chamada pela interrupcao do Timer
 	wakeUP();
 	serialEvent();
 	switchTask();
-	processPrintQueue();
+	processPrintQueue();  // Adição do processamento da fila de impressão
 }
 
 /*
@@ -549,6 +551,14 @@ static inline int calcularPrecisao(float valor) {
 	return PRECISAO_FLOAT_ARDUINO - precisao;
 }
 
+/*
+ * Enfileira uma mensagem de impressão na fila de impressão
+ * Se o formato contiver '%', identifica o tipo de dado, cria uma cópia do valor e armazena na fila
+ * A fila de impressão tem tamanho máximo definido por MAX_NKPRINT_QUEUE
+ * Entradas: tid (ID da thread), format (texto + formato da variável), var (variável a ser impressa)
+ * Exemplo de uso: enqueueNkPrint(TaskRunning, "Valor: %d", &valor);
+ * Retorna: nulo
+ */
 void enqueueNkPrint(int tid, const char *format, void *var) {
 	while (printTailMutex == true);  // Espera se printTailMutex estiver ocupado
 	printTailMutex = true;           // Bloqueia o printTailMutex
@@ -599,6 +609,14 @@ void enqueueNkPrint(int tid, const char *format, void *var) {
 	printTailMutex = false;  // Libera o printTailMutex
 }
 
+/*
+ * Desenfileira uma mensagem de impressão da fila de impressão
+ * Remove a entrada do início da fila e retorna o conteúdo
+ * A fila de impressão tem tamanho máximo definido por MAX_NKPRINT_QUEUE
+ * Entradas: nenhuma
+ * Exemplo de uso: NkPrintQueueEntry entry = dequeueNkPrint();
+ * Retorna: NkPrintQueueEntry (entrada da fila de impressão)
+ */
 NkPrintQueueEntry dequeueNkPrint() {
 	while (printHeadMutex == true);  // Espera se printHeadMutex estiver ocupado
 	printHeadMutex = true;           // Bloqueia o printHeadMutex
@@ -608,12 +626,28 @@ NkPrintQueueEntry dequeueNkPrint() {
 	return entry;
 }
 
+/*
+ * Chamada de sistema para impressão
+ * Adiciona a mensagem na fila de impressão e chama switchTask()
+ * A mensagem é formatada de acordo com o formato fornecido e a variável associada
+ * Entradas: format (texto + formato da variável), var (variável a ser impressa)
+ * Exemplo de uso: sys_nkprint("Valor: %d", &valor);
+ * Retorna: nulo
+ */
 void sys_nkprint(const char *format, void *var) {
 	// Adicionar a mensagem na fila de escrita
 	enqueueNkPrint(Descriptors[TaskRunning].Tid, format, var);
 	switchTask();
 }
 
+/*
+ * Função auxiliar para imprimir na serial
+ * Formata a mensagem de acordo com o formato fornecido e a variável associada
+ * Suporta tipos: %d (int), %f (float), %c (char), %s (string) e %%
+ * Entradas: fmt (formato da mensagem), entry (entrada da fila de impressão)
+ * Exemplo de uso: serial_print("Valor: %d\n", entry);
+ * Retorna: nulo
+ */
 void serial_print(char *fmt, NkPrintQueueEntry entry) {
 	int *auxint;
 	float *auxfloat;
@@ -706,6 +740,16 @@ void serial_print(char *fmt, NkPrintQueueEntry entry) {
 	}
 }
 
+/*
+ * Processa a fila de impressão
+ * Desenfileira as mensagens da fila e imprime na serial
+ * Chama a função serial_print para formatar e imprimir cada mensagem
+ * A fila de impressão é processada enquanto houver mensagens pendentes
+ * Caso alguma mensagem nova chegue na fila durante o processamento, ela será impressa na próxima chamada
+ * Entradas: nenhuma
+ * Exemplo de uso: processPrintQueue();
+ * Retorna: nulo
+ */
 void processPrintQueue() {
 	while (printTailMutex);
 	printTailMutex = true;
@@ -957,6 +1001,11 @@ void p2() {
 	}
 }
 
+/*
+ * Exemplo de task que imprime variaveis de diferentes tipos em um curto intervalo
+ * int, char, float e string
+ * A task imprime a cada 2 segundos
+ */
 void p3() {
 	static int number3;
 	int teste = 10;
