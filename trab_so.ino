@@ -408,8 +408,8 @@ void sortReadyList() {
 void systemContext() {  // Chamada pela interrupcao do Timer
 	wakeUP();
 	serialEvent();
-	switchTask();
 	processPrintQueue();  // Adição do processamento da fila de impressão
+	switchTask();
 }
 
 /*
@@ -637,7 +637,6 @@ NkPrintQueueEntry dequeueNkPrint() {
 void sys_nkprint(const char *format, void *var) {
 	// Adicionar a mensagem na fila de escrita
 	enqueueNkPrint(Descriptors[TaskRunning].Tid, format, var);
-	switchTask();
 }
 
 /*
